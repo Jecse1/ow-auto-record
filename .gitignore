@@ -1,0 +1,17 @@
+# 가상환경 / 캐시
+venv/
+__pycache__/
+
+# 빌드 산출물 / 배포 zip
+dist/
+ow-replay-recorder.zip
+
+# 실행 중 생성되는 데이터
+recordings/
+debug/
+
+# 로그
+*.log
+
+# 민감 정보 (OBS 비밀번호 포함) — config.example.yaml을 복사해서 사용
+config.yaml

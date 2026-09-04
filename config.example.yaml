@@ -1,0 +1,96 @@
+# =============================================================
+# 오버워치 리플레이 자동 녹화 설정 (v0.2)
+# 좌표(coordinate)는 calibrate.py로, 템플릿은 capture_template.py로 보정하세요.
+# 녹화할 리플레이/선수 목록은 sessions.yaml에서 관리합니다.
+# =============================================================
+
+obs:
+  host: "localhost"
+  port: 4455            # OBS > 도구 > WebSocket 서버 설정에서 확인
+  password: ""          # WebSocket 비밀번호 (설정한 경우)
+  # 녹화 파일명 태깅: "<코드>_<선수>_<날짜시간>" 형식으로 stop 후 rename
+  filename_tag: true
+  # rename 시 OBS가 파일 쓰기를 끝낼 때까지 재시도
+  rename_retries: 20
+  rename_retry_delay: 0.5
+
+detection:
+  poll_interval: 1.0      # 화면 인식 폴링 주기 (초)
+  match_threshold: 0.80   # 템플릿 매칭 임계값 (0~1). 감지 실패 시 0.75로 낮추세요.
+  monitor: 1              # 모니터 번호 (mss 기준, 1 = 주 모니터)
+
+templates:
+  # capture_template.py로 캡처하여 생성. tests/ 스크린샷에서 잘라 두었습니다.
+  replay_menu: "templates/replay_menu.png"        # 리플레이 목록(로비) 화면 식별
+  replay_ended: "templates/replay_ended.png"      # "리플레이 종료" 화면 식별
+  # replay_playing 템플릿은 v0.3에서 미사용(재생은 '보기' 클릭 후 자동 진입).
+  # 파일은 남겨두었으나 감지에는 쓰이지 않음.
+
+# ---- 리플레이 코드 OCR (배지 검출 + 글자 인식) ----
+ocr:
+  # 리플레이 코드 배지가 나타나는 영역 (목록 오른쪽 열). 1920x1080 기준.
+  # 스크롤 시 배지가 목록 전체(대략 y 360~940)에 나타날 수 있어 세로 범위를 넓게 잡는다.
+  roi: { x0: 895, y0: 360, x1: 1030, y1: 940 }
+  # 스크롤 경계에서 상하로 잘린 배지는 높이가 정상보다 작게 검출된다.
+  # 화면 내 배지 높이 중앙값 대비 이 비율 미만이면 '잘린 배지'로 보고 인식 대상에서 제외.
+  min_badge_height_ratio: 0.6
+  # 주황색 배지 색상 필터(HSV, OpenCV H:0~179). 배지 검출 보조/폴백에 사용.
+  badge_hsv:
+    lower: [5, 90, 110]
+    upper: [28, 255, 255]
+  detect_scale: 2.0        # 배지 위치 검출 시 ROI 확대 배율
+  clahe_clip: 2.0          # 글자 대비 향상(CLAHE) 강도
+  # easyocr에 넣을 글자 높이(px) 정규화 값들 (여러 높이의 위치별 다수결).
+  # 1920x1080 배지 기준으로 '1'과 'I' 구분이 가장 안정적인 큰 높이들로 튜닝됨.
+  easyocr_heights: [104, 112, 140]
+  # Tesseract(2순위 엔진). 있으면 숫자 인식 정확도를 보정한다. 없으면 easyocr만 사용.
+  tesseract:
+    enabled: true
+    # 빈 문자열이면 PATH에서 tesseract를 찾는다.
+    cmd: "C:/Program Files/Tesseract-OCR/tesseract.exe"
+    # [글자높이, CLAHE 강도] 조합들
+    configs:
+      - [128, 2.0]
+      - [64, 4.0]
+      - [96, 2.0]
+      - [160, 2.0]
+  # 대상 코드와 OCR 결과를 맞출 때 허용하는 최대 편집거리(혼동 문자 보정 포함)
+  match_max_distance: 1
+
+replay_list:
+  use_ocr: true             # true면 코드 OCR로 행을 찾는다. false면 아래 고정 좌표(rows) 폴백.
+  # 행 선택 시 클릭할 x좌표 (배지/공유 아이콘을 피해 목록 본문을 클릭). y는 OCR로 찾은 배지 높이 사용.
+  row_click_x: 600
+  view_button: { x: 875, y: 980 }   # '보기' 버튼 좌표 (calibrate.py로 확인)
+
+  # ---- 폴백: OCR을 못 쓸 때만 사용하는 고정 좌표 (use_ocr: false) ----
+  fallback_rows:
+    - { x: 600, y: 536 }
+    - { x: 600, y: 609 }
+    - { x: 600, y: 745 }
+    - { x: 600, y: 818 }
+
+# ---- 리플레이 목록 스크롤 탐색 (코드가 화면 밖에 있을 때) ----
+scroll:
+  # 휠 입력 방식: auto / sendinput / pydirectinput / pyautogui.
+  # auto 순서: sendinput(ctypes SendInput) → pydirectinput → pyautogui.
+  # 게임이 특정 방식을 무시하면 test_scroll.py로 어떤 방식이 먹는지 확인 후 값을 고정하세요.
+  scroll_method: sendinput
+  scroll_ticks_per_step: 3   # 한 번에 내리는 휠 틱 수
+  scroll_wait: 0.5           # 스크롤 후 대기(초, 스크롤 애니메이션 안정화)
+  scroll_max_steps: 30       # 무한 루프 방지 상한(스텝 수)
+  scroll_reset_ticks: 10     # 시작 시 맨 위로 올리는 휠 업 틱 수
+  list_area: { x: 1130, y: 650 }  # 휠 입력 시 마우스를 둘 목록 중앙 좌표
+  # 스크롤 전후 목록 영역(roi)의 평균 픽셀 차이가 이 값 이하이면 더 이상 스크롤되지
+  # 않는 것으로 보고(끝 도달) 탐색을 종료한다.
+  end_diff_threshold: 2.0
+
+recording:
+  load_wait: 3.0          # '보기' 클릭 후 재생 로딩+진입을 기다리는 고정 대기 (초)
+  start_delay: 0.5        # F키 시점 전환 후 녹화 시작까지 지연 (초)
+  pov_retry: 0            # F키 재입력 횟수. 0이면 정확히 1회만 입력 (재입력 없음)
+  pov_retry_delay: 1.5    # (pov_retry > 0일 때) 재입력 간격 (초)
+  stop_delay: 2.0         # 종료 감지 후 녹화 정지까지 지연 (초)
+  max_duration: 1800      # 안전장치: 최대 녹화 시간(초). 초과 시 강제 정지.
+  between_replays: 8.0     # 리플레이 간 대기 (메뉴 로딩) (초)
+  lobby_return_timeout: 30 # 종료 후 로비(목록) 복귀를 기다리는 최대 시간(초)
