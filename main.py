@@ -107,16 +107,33 @@ def wait_for(detector, name, timeout, interval, invert=False, ctx=None) -> bool:
     return False
 
 
-def wait_for_end(detector, interval, max_duration, ctx=None, si=None, pi=None) -> str:
+def wait_for_end(detector, interval, max_duration, ctx=None, si=None, pi=None,
+                 controller=None, fkey=None, pov_repeat_interval=0.0) -> str:
     """리플레이 종료를 판정하고 사유를 반환.
-    1순위: replay_ended 템플릿, 안전장치: max_duration."""
+    1순위: replay_ended 템플릿, 안전장치: max_duration.
+
+    pov_repeat_interval > 0이고 controller/fkey가 주어지면, 종료 전까지 같은
+    시점 키(fkey)를 그 간격(초)마다 반복 입력한다. 준비 시간이 있는 리플레이에서
+    선수가 뒤늦게 영웅을 픽해도 시점이 잡히도록 하기 위함이며, 이미 해당 시점이면
+    재입력해도 부작용이 없다. 별도 스레드 없이 이 종료 감지 루프 안에서 처리한다."""
     start = time.time()
     deadline = start + max_duration
+    repeat = bool(controller and fkey and pov_repeat_interval and pov_repeat_interval > 0)
+    next_pov = start + pov_repeat_interval if repeat else None
+    if repeat:
+        log = ctx.log if ctx else print
+        log(f"[조작] 시점 키 반복 입력 중 ({fkey.upper()}, {pov_repeat_interval:.0f}초 간격)")
     while time.time() < deadline:
         if ctx and ctx.stopped():
             return "중단됨"
         if detector.match("replay_ended"):
             return "종료 화면(replay_ended) 감지"
+        if repeat and time.time() >= next_pov:
+            try:
+                controller._tap_key(fkey, quiet=True)  # 반복 입력 로그는 생략
+            except Exception:
+                pass
+            next_pov += pov_repeat_interval
         if ctx:
             ctx.emit("recording", si=si, pi=pi, elapsed=int(time.time() - start))
             if ctx.sleep(interval):
@@ -169,16 +186,17 @@ def record_player(cfg, detector, recorder, controller, click_xy, code, player, c
     if ctx.sleep(load_wait):
         return False, "중단됨"
 
-    # 선수 시점 고정 후 녹화 시작
+    # 선수 시점 고정(F키 1회) 후 녹화 시작
     ctx.emit("step", si=si, pi=pi, text=f"시점 전환 {fkey.upper()}")
-    controller.set_pov(fkey, retries=rc.get("pov_retry", 0),
-                       retry_delay=rc.get("pov_retry_delay", 1.5))
+    controller.set_pov(fkey)
     ctx.sleep(max(0.0, rc["start_delay"]))
     recorder.start()
     ctx.emit("step", si=si, pi=pi, text="녹화 중")
 
-    # 종료 판정
-    reason = wait_for_end(detector, interval, rc["max_duration"], ctx=ctx, si=si, pi=pi)
+    # 종료 판정 — 종료 전까지 같은 F키를 pov_repeat_interval마다 반복 입력한다.
+    reason = wait_for_end(detector, interval, rc["max_duration"], ctx=ctx, si=si, pi=pi,
+                          controller=controller, fkey=fkey,
+                          pov_repeat_interval=rc.get("pov_repeat_interval", 0.0))
     ctx.log(f"[감지] {reason}")
 
     # 녹화 정지 + 파일명 태깅

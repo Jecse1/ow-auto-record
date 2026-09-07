@@ -99,29 +99,30 @@ class ReplayController:
         time.sleep(0.5)
         self.click_view()
 
-    def _tap_key(self, fkey: str):
+    def _tap_key(self, fkey: str, quiet: bool = False):
         """keyDown → 짧은 유지 → keyUp 방식으로 F키를 명시적으로 입력한다.
 
         리플레이 로딩 직후에는 짧은 press()가 씹히는 경우가 있어
         keyDown/keyUp을 분리하고 사이에 유지 시간을 둔다.
+
+        quiet=True면 로그를 남기지 않는다(녹화 루프의 반복 입력용 — 매번
+        찍으면 시끄럽다).
         """
-        ts = time.strftime("%H:%M:%S")
-        print(f"[조작] 선수 시점 전환: {fkey.upper()} (입력 {ts})")
+        if not quiet:
+            ts = time.strftime("%H:%M:%S")
+            print(f"[조작] 선수 시점 전환: {fkey.upper()} (입력 {ts})")
         pydirectinput.keyDown(fkey)
         time.sleep(0.05)
         pydirectinput.keyUp(fkey)
 
-    def set_pov(self, fkey: str, retries: int = 0, retry_delay: float = 1.5):
-        """관전 시점을 특정 선수로 고정한다 (F1~F5 / F7~F11).
+    def set_pov(self, fkey: str):
+        """관전 시점을 특정 선수로 고정한다 (F1~F5 / F7~F11). F키를 1회 입력한다.
 
-        기본값(retries=0)이면 F키를 정확히 1회만 입력한다. retries > 0이면
-        같은 F키를 그만큼 추가로 재입력한다(같은 시점 재선택은 부작용 없음).
+        준비 시간이 있는 리플레이는 이 1회 입력 시점에 선수가 아직 영웅을 안
+        골라 시점이 안 잡힐 수 있다. 이후 시점 유지는 녹화 루프(wait_for_end)에서
+        같은 F키를 주기적으로 반복 입력해 처리한다.
         """
         self._tap_key(fkey)
-        for i in range(max(0, int(retries))):
-            time.sleep(max(0.0, retry_delay))
-            print(f"[조작] 선수 시점 재입력 {i + 1}/{int(retries)}: {fkey.upper()}")
-            self._tap_key(fkey)
 
     def _try_scroll(self, method: str, clicks: int):
         """단일 방식으로 휠 입력. 사용 불가/실패 시 예외를 던진다."""
